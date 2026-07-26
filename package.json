@@ -1,0 +1,16 @@
+{
+  "name": "agy-chat-viewer",
+  "version": "1.0.0",
+  "description": "Visual GUI viewer for Google Antigravity CLI chat history",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
