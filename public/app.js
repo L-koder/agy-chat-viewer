@@ -198,6 +198,9 @@ function renderChatList() {
   const pinnedChats = JSON.parse(localStorage.getItem('agyPinnedChats') || '[]');
   const pinnedSet = new Set(pinnedChats);
 
+  // Reset search scores on all items first
+  allConversations.forEach(c => { c._searchScore = 0; c._allWordsMatch = false; });
+
   let filtered = allConversations.filter((c) => {
     const matchesModel = !model || c.model === model;
     if (!matchesModel) return false;
@@ -243,8 +246,10 @@ function renderChatList() {
     }
 
     // 4. Standard sort fallback
-    if (sort === 'newest') return new Date(b.lastActivity) - new Date(a.lastActivity);
-    if (sort === 'oldest') return new Date(a.lastActivity) - new Date(b.lastActivity);
+    const aDate = new Date(a.lastActivity || a.createdAt || 0);
+    const bDate = new Date(b.lastActivity || b.createdAt || 0);
+    if (sort === 'newest') return bDate - aDate;
+    if (sort === 'oldest') return aDate - bDate;
     if (sort === 'most-messages') return b.totalSteps - a.totalSteps;
     return 0;
   });
