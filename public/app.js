@@ -222,24 +222,38 @@ function renderChatList() {
     
     if (searchWords.length === 0) return true;
     
-    const textToSearch = [
-        c.title,
-        (c.fullText || ''),
-        c.id
-    ].join(' ').toLowerCase();
-
+    let score = 0;
     let matchCount = 0;
+    const titleLower = c.title.toLowerCase();
+    
     for (const word of searchWords) {
-        if (textToSearch.includes(word)) {
-            matchCount++;
+        let wordMatched = false;
+        
+        // Massive boost for title match
+        if (titleLower.includes(word)) {
+            score += 100;
+            wordMatched = true;
+        } 
+        
+        // Minor boost for content match
+        if ((c.fullText || '').includes(word)) {
+            score += 1;
+            wordMatched = true;
         }
+        
+        if (c.id.includes(word)) {
+            score += 1;
+            wordMatched = true;
+        }
+        
+        if (wordMatched) matchCount++;
     }
     
-    c._searchScore = matchCount;
+    c._searchScore = score;
     c._allWordsMatch = (matchCount === searchWords.length);
     c._searchSnippet = '';
 
-    if (matchCount > 0 && query.length > 2) {
+    if (score > 0 && query.length > 2) {
       // Find the first matching word to generate a snippet
       for (const word of searchWords) {
         if (c.title.toLowerCase().includes(word)) continue; // title is already visible
@@ -260,7 +274,7 @@ function renderChatList() {
       }
     }
     
-    return matchCount > 0;
+    return score > 0;
   });
 
   // Sort
