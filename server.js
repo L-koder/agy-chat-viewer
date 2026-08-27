@@ -15,6 +15,7 @@ const BRAIN_DIR = path.join(
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/api/media', express.static(BRAIN_DIR, { dotfiles: 'allow' }));
 
 /**
  * Parse a single transcript line safely.
@@ -91,10 +92,23 @@ async function getConversationMeta(convId) {
     let lastTimestamp = null;
     let fullText = '';
     let workspace = null;
+    const images = [];
+
+    const imgRegex = new RegExp(BRAIN_DIR.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') + '[/a-zA-Z0-9_.-]+\\.(png|jpg|jpeg|gif|webp)', 'gi');
 
     rl.on('line', (line) => {
       const d = parseLine(line);
       if (!d) return;
+
+      if (d.content) {
+        let match;
+        while ((match = imgRegex.exec(d.content)) !== null) {
+          const relPath = match[0].substring(BRAIN_DIR.length).replace(/^\/+/, '');
+          if (!images.includes(relPath)) {
+            images.push(relPath);
+          }
+        }
+      }
 
       stepCount++;
 
@@ -167,6 +181,7 @@ async function getConversationMeta(convId) {
         fileSize: stat.size,
         fullText: fullText.toLowerCase(),
         workspace: workspace || '~',
+        images
       });
     });
 
@@ -214,6 +229,16 @@ async function getConversationMessages(convId, useFullTranscript = false) {
         if (m) currentModel = m;
       }
 
+      const imgRegex = new RegExp(BRAIN_DIR.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') + '[/a-zA-Z0-9_.-]+\\.(png|jpg|jpeg|gif|webp)', 'gi');
+      const getImages = (content) => {
+        const imgs = [];
+        let match;
+        while ((match = imgRegex.exec(content || '')) !== null) {
+          imgs.push(match[0].substring(BRAIN_DIR.length).replace(/^\/+/, ''));
+        }
+        return imgs;
+      };
+
       if (d.type === 'USER_INPUT') {
         const userReq = extractUserRequest(d.content || '');
         if (userReq) {
@@ -222,6 +247,7 @@ async function getConversationMessages(convId, useFullTranscript = false) {
             content: userReq,
             timestamp: d.created_at,
             stepIndex: d.step_index,
+            images: getImages(d.content)
           });
         }
       } else if (d.type === 'PLANNER_RESPONSE') {
@@ -242,6 +268,7 @@ async function getConversationMessages(convId, useFullTranscript = false) {
             timestamp: d.created_at,
             stepIndex: d.step_index,
             isTruncated: d.is_truncated || false,
+            images: getImages(d.content)
           });
         }
       }

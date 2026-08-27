@@ -30,6 +30,10 @@ const workspaceRow = document.getElementById('workspaceRow');
 const copyWorkspaceBtn = document.getElementById('copyWorkspaceBtn');
 const backBtn = document.getElementById('backBtn');
 const sidebar = document.getElementById('sidebar');
+const galleryBtn = document.getElementById('galleryBtn');
+const galleryModal = document.getElementById('galleryModal');
+const closeGalleryBtn = document.getElementById('closeGalleryBtn');
+const galleryGrid = document.getElementById('galleryGrid');
 
 // ── Initialization ──
 document.addEventListener('DOMContentLoaded', init);
@@ -57,6 +61,12 @@ function bindEvents() {
     });
   });
   toggleThinking.classList.add('active');
+
+  galleryBtn.addEventListener('click', openGallery);
+  closeGalleryBtn.addEventListener('click', () => galleryModal.classList.add('hidden'));
+  galleryModal.addEventListener('click', (e) => {
+    if (e.target === galleryModal) galleryModal.classList.add('hidden');
+  });
 
   copyCommandBtn.addEventListener('click', async () => {
     if (!currentConvId) return;
@@ -106,7 +116,11 @@ async function loadConversations() {
   try {
     const res = await fetch('/api/conversations');
     const data = await res.json();
-    allConversations = data.conversations;
+    const renamed = JSON.parse(localStorage.getItem('agyRenamedChats') || '{}');
+    allConversations = data.conversations.map(c => {
+      if (renamed[c.id]) c.title = renamed[c.id];
+      return c;
+    });
     document.getElementById('chatCount').textContent =
       `${data.total} conversations`;
     populateModelFilter();
@@ -147,8 +161,9 @@ async function loadMessages(convId, full = false) {
     const data = await res.json();
 
     // Update header
-    chatTitle.textContent = data.meta.title;
-    chatTitle.title = data.meta.title;
+    const renamed = JSON.parse(localStorage.getItem('agyRenamedChats') || '{}');
+    chatTitle.textContent = renamed[convId] || data.meta.title;
+    chatTitle.title = renamed[convId] || data.meta.title;
     const modelInfo = getModelInfo(data.meta.model);
     chatModel.textContent = data.meta.model;
     chatModel.className = `chat-meta-badge model-badge ${modelInfo.cssClass}`;
@@ -222,6 +237,28 @@ function renderChatList() {
     
     c._searchScore = matchCount;
     c._allWordsMatch = (matchCount === searchWords.length);
+    c._searchSnippet = '';
+
+    if (matchCount > 0 && query.length > 2) {
+      // Find the first matching word to generate a snippet
+      for (const word of searchWords) {
+        if (c.title.toLowerCase().includes(word)) continue; // title is already visible
+        const fullText = c.fullText || '';
+        const idx = fullText.indexOf(word);
+        if (idx !== -1) {
+          const start = Math.max(0, idx - 30);
+          const end = Math.min(fullText.length, idx + word.length + 40);
+          let snippet = fullText.substring(start, end).replace(/\n/g, ' ');
+          if (start > 0) snippet = '...' + snippet;
+          if (end < fullText.length) snippet = snippet + '...';
+          // Highlight the word
+          const regex = new RegExp(`(${word})`, 'gi');
+          snippet = escapeHtml(snippet).replace(regex, '<mark>$1</mark>');
+          c._searchSnippet = snippet;
+          break;
+        }
+      }
+    }
     
     return matchCount > 0;
   });
@@ -295,6 +332,7 @@ function renderChatList() {
         <span class="chat-item-date">${formatDateShort(conv.createdAt)}</span>
         <span class="chat-item-steps">${conv.totalSteps} steps</span>
       </div>
+      ${conv._searchSnippet ? `<div class="chat-item-snippet">${conv._searchSnippet}</div>` : ''}
     `;
 
     item.addEventListener('click', () => selectConversation(conv.id));
@@ -358,6 +396,12 @@ function renderMessages(messages) {
     el.style.animationDelay = `${Math.min(idx * 30, 500)}ms`;
 
     if (msg.role === 'user') {
+      let imagesHtml = '';
+      if (msg.images && msg.images.length > 0) {
+        const imgs = msg.images.map(img => `<img src="/api/media/${img}" class="chat-image" alt="Uploaded Image" onclick="openLightbox('/api/media/${img}')" />`).join('');
+        imagesHtml = `<div class="message-images-grid">${imgs}</div>`;
+      }
+
       el.innerHTML = `
         <div class="message-avatar">U</div>
         <div class="message-body">
@@ -365,6 +409,7 @@ function renderMessages(messages) {
             <span class="message-sender">You</span>
             <span class="message-time">${formatTime(msg.timestamp)}</span>
           </div>
+          ${imagesHtml}
           <div class="message-content">${formatContent(msg.content)}</div>
         </div>
       `;
@@ -411,6 +456,12 @@ function renderMessages(messages) {
         truncatedHtml = `<div class="truncated-marker">⚠ Content truncated — enable "Full Transcript" to see complete output</div>`;
       }
 
+      let imagesHtml = '';
+      if (msg.images && msg.images.length > 0) {
+        const imgs = msg.images.map(img => `<img src="/api/media/${img}" class="chat-image" alt="Generated Image" onclick="openLightbox('/api/media/${img}')" />`).join('');
+        imagesHtml = `<div class="message-images-grid">${imgs}</div>`;
+      }
+
       el.innerHTML = `
         <div class="message-avatar">✦</div>
         <div class="message-body">
@@ -420,6 +471,7 @@ function renderMessages(messages) {
             <span class="message-time">${formatTime(msg.timestamp)}</span>
           </div>
           ${thinkingHtml}
+          ${imagesHtml}
           ${msg.content ? `<div class="message-content">${formatContent(msg.content)}</div>` : ''}
           ${truncatedHtml}
           ${toolCallsHtml}
@@ -596,3 +648,72 @@ function debounce(fn, ms) {
     timer = setTimeout(() => fn(...args), ms);
   };
 }
+
+function openGallery() {
+  galleryGrid.innerHTML = '';
+  let hasImages = false;
+  allConversations.forEach(conv => {
+    if (conv.images && conv.images.length > 0) {
+      hasImages = true;
+      conv.images.forEach(img => {
+        const div = document.createElement('div');
+        div.className = 'gallery-item';
+        div.innerHTML = `<img src="/api/media/${img}" loading="lazy"><div class="gallery-item-title">${escapeHtml(conv.title)}</div>`;
+        div.onclick = () => {
+          galleryModal.classList.add('hidden');
+          selectConversation(conv.id);
+        };
+        galleryGrid.appendChild(div);
+      });
+    }
+  });
+  if (!hasImages) {
+    galleryGrid.innerHTML = '<div style="color:var(--text-muted); grid-column: 1/-1; text-align:center;">No media found in any chat</div>';
+  }
+  galleryModal.classList.remove('hidden');
+}
+
+
+let renamedChats = JSON.parse(localStorage.getItem('agyRenamedChats') || '{}');
+const renameChatBtn = document.getElementById('renameChatBtn');
+
+renameChatBtn.addEventListener('click', () => {
+  if (!currentConvId) return;
+  const currentTitle = chatTitle.innerText;
+  const newTitle = prompt('Enter new chat title:', currentTitle);
+  if (newTitle !== null && newTitle.trim() !== '') {
+    renamedChats[currentConvId] = newTitle.trim();
+    localStorage.setItem('agyRenamedChats', JSON.stringify(renamedChats));
+    chatTitle.innerText = renamedChats[currentConvId];
+    
+    // Update it in allConversations and re-render the list
+    const conv = allConversations.find(c => c.id === currentConvId);
+    if (conv) {
+      conv.title = renamedChats[currentConvId];
+      renderChatList();
+    }
+  } else if (newTitle === '') {
+    // Reset to default
+    delete renamedChats[currentConvId];
+    localStorage.setItem('agyRenamedChats', JSON.stringify(renamedChats));
+    
+    const conv = allConversations.find(c => c.id === currentConvId);
+    if (conv) {
+      conv.title = conv.firstMessage ? conv.firstMessage.substring(0, 30) + '...' : 'Empty Chat';
+      chatTitle.innerText = conv.title;
+      renderChatList();
+    }
+  }
+});
+
+
+const lightboxModal = document.getElementById('lightboxModal');
+const lightboxImg = document.getElementById('lightboxImg');
+window.openLightbox = function(src) {
+  lightboxImg.src = src;
+  lightboxModal.classList.remove('hidden');
+};
+lightboxModal.addEventListener('click', () => {
+  lightboxModal.classList.add('hidden');
+});
+
