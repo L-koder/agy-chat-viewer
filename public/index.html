@@ -156,6 +156,21 @@
             </div>
           </div>
           <div class="chat-header-actions">
+            <div class="search-box" style="margin-right: 15px; width: 250px; display: flex; align-items: center; position: relative;">
+              <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="position: absolute; left: 10px;">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="M21 21L16.65 16.65"/>
+              </svg>
+              <input type="text" id="inChatSearchInput" placeholder="Search in chat..." autocomplete="off" style="font-size: 13px; padding-left: 32px; padding-right: 80px; padding-top: 6px; padding-bottom: 6px; width: 100%;">
+              <div id="inChatSearchControls" style="position: absolute; right: 8px; display: none; align-items: center; gap: 4px; font-size: 11px; color: var(--text-tertiary);">
+                <span id="inChatSearchCount">0/0</span>
+                <button id="inChatSearchPrev" class="action-btn" style="padding: 2px;" title="Previous match"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6"/></svg></button>
+                <button id="inChatSearchNext" class="action-btn" style="padding: 2px;" title="Next match"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button>
+              </div>
+            </div>
+            <button id="chatGalleryBtn" class="action-btn" title="View media in this chat" style="margin-right: 15px;">
+              🖼️
+            </button>
             <label class="toggle-label">
               <input type="checkbox" id="toggleFull" class="toggle-input">
               <span class="toggle-slider"></span>

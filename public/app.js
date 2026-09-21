@@ -53,6 +53,22 @@ function bindEvents() {
     if (currentConvId) loadMessages(currentConvId, toggleFull.checked);
   });
 
+  const inChatSearchInput = document.getElementById('inChatSearchInput');
+  inChatSearchInput.addEventListener('input', debounce((e) => {
+    const term = e.target.value.trim();
+    highlightInChat(term);
+  }, 300));
+  
+  inChatSearchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        if (searchMatches.length > 0) {
+            searchMatchIndex = (searchMatchIndex + 1) % searchMatches.length;
+            updateInChatSearchNav();
+        }
+    }
+  });
+
   toggleThinking.addEventListener('click', () => {
     showThinking = !showThinking;
     toggleThinking.classList.toggle('active', showThinking);
@@ -62,7 +78,7 @@ function bindEvents() {
   });
   toggleThinking.classList.add('active');
 
-  galleryBtn.addEventListener('click', openGallery);
+  galleryBtn.addEventListener('click', () => openGallery(null));
   closeGalleryBtn.addEventListener('click', () => galleryModal.classList.add('hidden'));
   galleryModal.addEventListener('click', (e) => {
     if (e.target === galleryModal) galleryModal.classList.add('hidden');
@@ -151,6 +167,7 @@ async function loadStats() {
 }
 
 async function loadMessages(convId, full = false) {
+  if (inChatSearchInput) inChatSearchInput.value = '';
   messagesLoading.classList.remove('hidden');
   messagesList.innerHTML = '';
 
@@ -225,6 +242,13 @@ function renderChatList() {
     let score = 0;
     let matchCount = 0;
     const titleLower = c.title.toLowerCase();
+    const fullText = (c.fullText || '').toLowerCase();
+    
+    // Exact phrase match gives a massive boost
+    if (searchWords.length > 1) {
+        if (titleLower.includes(query)) score += 5000;
+        if (fullText.includes(query)) score += 2000;
+    }
     
     for (const word of searchWords) {
         let wordMatched = false;
@@ -235,14 +259,15 @@ function renderChatList() {
             wordMatched = true;
         } 
         
-        // Minor boost for content match
-        if ((c.fullText || '').includes(word)) {
-            score += 1;
+        // Boost for content match with term frequency (TF)
+        if (fullText.includes(word)) {
+            const freq = fullText.split(word).length - 1;
+            score += (freq * 2); // 2 points per occurrence
             wordMatched = true;
         }
         
         if (c.id.includes(word)) {
-            score += 1;
+            score += 50;
             wordMatched = true;
         }
         
@@ -250,21 +275,21 @@ function renderChatList() {
     }
     
     c._searchScore = score;
-    c._allWordsMatch = (matchCount === searchWords.length);
+    c._matchCount = matchCount;
     c._searchSnippet = '';
 
     if (score > 0 && query.length > 2) {
       // Find the first matching word to generate a snippet
       for (const word of searchWords) {
         if (c.title.toLowerCase().includes(word)) continue; // title is already visible
-        const fullText = c.fullText || '';
-        const idx = fullText.indexOf(word);
+        const fullTextRaw = c.fullText || '';
+        const idx = fullTextRaw.toLowerCase().indexOf(word);
         if (idx !== -1) {
           const start = Math.max(0, idx - 30);
-          const end = Math.min(fullText.length, idx + word.length + 40);
-          let snippet = fullText.substring(start, end).replace(/\n/g, ' ');
+          const end = Math.min(fullTextRaw.length, idx + word.length + 40);
+          let snippet = fullTextRaw.substring(start, end).replace(/\n/g, ' ');
           if (start > 0) snippet = '...' + snippet;
-          if (end < fullText.length) snippet = snippet + '...';
+          if (end < fullTextRaw.length) snippet = snippet + '...';
           // Highlight the word
           const regex = new RegExp(`(${word})`, 'gi');
           snippet = escapeHtml(snippet).replace(regex, '<mark>$1</mark>');
@@ -285,12 +310,13 @@ function renderChatList() {
     if (aPinned && !bPinned) return -1;
     if (!aPinned && bPinned) return 1;
 
-    // 2. All search words match first
+    // 2. Number of unique search words matched (e.g. 3 keywords > 2 keywords > 1 keyword)
     if (searchWords.length > 0) {
-        if (a._allWordsMatch && !b._allWordsMatch) return -1;
-        if (!a._allWordsMatch && b._allWordsMatch) return 1;
+        if (a._matchCount !== b._matchCount) {
+            return b._matchCount - a._matchCount;
+        }
         
-        // 3. Search Score
+        // 3. Search Score (Term Frequency & Title Matches)
         if (a._searchScore !== b._searchScore) {
             return b._searchScore - a._searchScore;
         }
@@ -663,10 +689,15 @@ function debounce(fn, ms) {
   };
 }
 
-function openGallery() {
+function openGallery(specificConvId = null) {
   galleryGrid.innerHTML = '';
   let hasImages = false;
-  allConversations.forEach(conv => {
+  
+  const convs = specificConvId 
+    ? allConversations.filter(c => c.id === specificConvId)
+    : allConversations;
+    
+  convs.forEach(conv => {
     if (conv.images && conv.images.length > 0) {
       hasImages = true;
       conv.images.forEach(img => {
@@ -675,14 +706,25 @@ function openGallery() {
         div.innerHTML = `<img src="/api/media/${img}" loading="lazy"><div class="gallery-item-title">${escapeHtml(conv.title)}</div>`;
         div.onclick = () => {
           galleryModal.classList.add('hidden');
-          selectConversation(conv.id);
+          
+          if (currentConvId !== conv.id) {
+             selectConversation(conv.id);
+             // Wait for messages to load, then scroll
+             setTimeout(() => {
+                 const imgEl = document.querySelector(`img[src="/api/media/${CSS.escape(img)}"].chat-image`);
+                 if (imgEl) imgEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+             }, 500);
+          } else {
+             const imgEl = document.querySelector(`img[src="/api/media/${CSS.escape(img)}"].chat-image`);
+             if (imgEl) imgEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
         };
         galleryGrid.appendChild(div);
       });
     }
   });
   if (!hasImages) {
-    galleryGrid.innerHTML = '<div style="color:var(--text-muted); grid-column: 1/-1; text-align:center;">No media found in any chat</div>';
+    galleryGrid.innerHTML = '<div style="color:var(--text-muted); grid-column: 1/-1; text-align:center;">No media found in this chat</div>';
   }
   galleryModal.classList.remove('hidden');
 }
@@ -729,5 +771,112 @@ window.openLightbox = function(src) {
 };
 lightboxModal.addEventListener('click', () => {
   lightboxModal.classList.add('hidden');
+});
+
+
+// In-chat Search Highlights
+let searchMatchIndex = 0;
+let searchMatches = [];
+
+function clearInChatHighlights() {
+    const marks = document.querySelectorAll('mark.in-chat-highlight');
+    marks.forEach(mark => {
+        const parent = mark.parentNode;
+        parent.replaceChild(document.createTextNode(mark.textContent), mark);
+        parent.normalize();
+    });
+    searchMatches = [];
+    searchMatchIndex = 0;
+    document.getElementById('inChatSearchControls').style.display = 'none';
+}
+
+function highlightInChat(term) {
+    clearInChatHighlights();
+    if (!term) return;
+    
+    const messages = document.querySelectorAll('#messagesList .message');
+    const regex = new RegExp('(' + term.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\^$\|]/g, '\\$&') + ')', 'gi');
+    
+    // Instead of using TreeWalker which is complex to mutate safely,
+    // we can parse innerHTML but only for text nodes. Wait, innerHTML is risky with event listeners.
+    // Let's use a standard TreeWalker approach for text nodes.
+    
+    const walk = document.createTreeWalker(document.getElementById('messagesList'), NodeFilter.SHOW_TEXT, null, false);
+    const nodesToReplace = [];
+    let node;
+    
+    while(node = walk.nextNode()) {
+        if (node.parentNode.nodeName === 'SCRIPT' || node.parentNode.nodeName === 'STYLE') continue;
+        if (regex.test(node.nodeValue)) {
+            nodesToReplace.push(node);
+        }
+    }
+    
+    nodesToReplace.forEach(textNode => {
+        const frag = document.createDocumentFragment();
+        let lastIdx = 0;
+        let match;
+        regex.lastIndex = 0; // reset
+        const text = textNode.nodeValue;
+        
+        while ((match = regex.exec(text)) !== null) {
+            if (match.index > lastIdx) {
+                frag.appendChild(document.createTextNode(text.substring(lastIdx, match.index)));
+            }
+            const mark = document.createElement('mark');
+            mark.className = 'in-chat-highlight';
+            mark.style.backgroundColor = '#fbbf24';
+            mark.style.color = '#000';
+            mark.style.borderRadius = '2px';
+            mark.textContent = match[0];
+            searchMatches.push(mark);
+            frag.appendChild(mark);
+            lastIdx = regex.lastIndex;
+        }
+        if (lastIdx < text.length) {
+            frag.appendChild(document.createTextNode(text.substring(lastIdx)));
+        }
+        textNode.parentNode.replaceChild(frag, textNode);
+    });
+    
+    if (searchMatches.length > 0) {
+        document.getElementById('inChatSearchControls').style.display = 'flex';
+        updateInChatSearchNav();
+    }
+}
+
+function updateInChatSearchNav() {
+    if (searchMatches.length === 0) return;
+    document.getElementById('inChatSearchCount').textContent = `${searchMatchIndex + 1}/${searchMatches.length}`;
+    
+    // Reset active style
+    searchMatches.forEach(m => m.style.boxShadow = 'none');
+    
+    // Set active
+    const activeMatch = searchMatches[searchMatchIndex];
+    activeMatch.style.boxShadow = '0 0 0 2px #fff, 0 0 0 4px #fbbf24';
+    
+    // Scroll into view
+    activeMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+document.getElementById('inChatSearchPrev').addEventListener('click', () => {
+    if (searchMatches.length === 0) return;
+    searchMatchIndex = (searchMatchIndex - 1 + searchMatches.length) % searchMatches.length;
+    updateInChatSearchNav();
+});
+
+document.getElementById('inChatSearchNext').addEventListener('click', () => {
+    if (searchMatches.length === 0) return;
+    searchMatchIndex = (searchMatchIndex + 1) % searchMatches.length;
+    updateInChatSearchNav();
+});
+
+
+const chatGalleryBtn = document.getElementById('chatGalleryBtn');
+chatGalleryBtn.addEventListener('click', () => {
+    if (currentConvId) {
+        openGallery(currentConvId);
+    }
 });
 
